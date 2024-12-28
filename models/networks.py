@@ -520,9 +520,9 @@ class Unet_SEA_ResnetGenerator(nn.Module):
         self.conv_norm = norm_layer(input_nc)
         self.relu = nn.ReLU(True)
         self.Down_conv2 = nn.Conv2d(ngf, ngf * 2, kernel_size=3, stride=2, padding=1, bias=use_bias)  # 下采样第二层
-        self.SA = Self_Attention_no_connect(ngf * 2, 'relu')
+        self.SA = Self_Attention(ngf * 2, 'relu')
         self.Down_conv3 = nn.Conv2d(ngf * 2, ngf * 4, kernel_size=3, stride=2, padding=1, bias=use_bias)  # 下采样第三层
-        self.Sa_block_3 = SEA_Block_3(ngf * 4, padding_type=padding_type, norm_layer=norm_layer,
+        self.Sa_block_3 = SEA_ResnetBlock_1(ngf * 4, padding_type=padding_type, norm_layer=norm_layer,
                                       use_dropout=use_dropout, use_bias=use_bias)
         self.Sa_resnetblock_1 = SEA_ResnetBlock_1(ngf * 4, padding_type=padding_type, norm_layer=norm_layer,
                                                   use_dropout=use_dropout, use_bias=use_bias)
