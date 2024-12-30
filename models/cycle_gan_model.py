@@ -3,7 +3,8 @@ import itertools
 from util.image_pool import ImagePool
 from .base_model import BaseModel
 from . import networks
-
+from util.read_images import *
+import matplotlib.pyplot as plt
 
 class CycleGANModel(BaseModel):
     """
@@ -90,6 +91,8 @@ class CycleGANModel(BaseModel):
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
+            #改进
+            self.edgeIdt = torch.nn.MSELoss()
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -109,9 +112,12 @@ class CycleGANModel(BaseModel):
         self.real_B = input['B' if AtoB else 'A'].to(self.device)
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
 
+
+
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         self.fake_B = self.netG_A(self.real_A)  # G_A(A)
+
         self.rec_A = self.netG_B(self.fake_B)   # G_B(G_A(A))
         self.fake_A = self.netG_B(self.real_B)  # G_B(B)
         self.rec_B = self.netG_A(self.fake_A)   # G_A(G_B(B))
@@ -164,7 +170,6 @@ class CycleGANModel(BaseModel):
         else:
             self.loss_idt_A = 0
             self.loss_idt_B = 0
-
         # GAN loss D_A(G_A(A))
         self.loss_G_A = self.criterionGAN(self.netD_A(self.fake_B), True)
         # GAN loss D_B(G_B(B))
@@ -175,6 +180,32 @@ class CycleGANModel(BaseModel):
         self.loss_cycle_B = self.criterionCycle(self.rec_B, self.real_B) * lambda_B
         # combined loss and calculate gradients
         self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
+        # 改进
+        for i, path in enumerate(self.image_paths):
+            directory, file_name = os.path.split(path)
+            base, _ = os.path.splitext(file_name)
+            new_dictionary = '/home/ycren/python/EVUP_part/trainAdir'
+            new_file_path = os.path.join(new_dictionary, base + '.txt')
+            # print("对应的label文件是:", new_file_path)
+            with open(new_file_path, 'r') as f:
+                lines = f.readlines()
+            # print('长度是:',len(lines))
+            for line in lines:
+                cut_image_label = solve(self.real_A[i], line)
+                cut_image_fake = solve(self.fake_B[i],line)
+                label_edge = prewitt_operator(cut_image_label)
+                fake_edge = prewitt_operator(cut_image_fake)
+                self.loss_G += (1 / len(lines)) * self.edgeIdt(label_edge, fake_edge) * lambda_A
+        # import cv2
+        # import numpy as np
+        # image_np = input['A'][0].permute(1, 2, 0).cpu().detach().numpy()
+        # image_np1 = cut_image_fake.permute(1, 2, 0).cpu().detach().numpy()
+        # image_np = (image_np * 255).astype(np.uint8)
+        # image_np1 = (image_np1 * 255).astype(np.uint8)
+        #
+        # cv2.imwrite('output_image123456.png', cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR))
+        # cv2.imwrite('cut_image_fake'+line+'.png', image_np1)
+
         self.loss_G.backward()
 
     def optimize_parameters(self):
