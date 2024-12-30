@@ -195,7 +195,7 @@ class CycleGANModel(BaseModel):
                 cut_image_fake = solve(self.fake_B[i],line)
                 label_edge = prewitt_operator(cut_image_label)
                 fake_edge = prewitt_operator(cut_image_fake)
-                self.loss_G += (1 / len(lines)) * self.edgeIdt(label_edge, fake_edge) * lambda_A
+                self.loss_G += (1 / len(lines)) * self.criterionCycle(label_edge, fake_edge) * lambda_A
         # import cv2
         # import numpy as np
         # image_np = input['A'][0].permute(1, 2, 0).cpu().detach().numpy()
