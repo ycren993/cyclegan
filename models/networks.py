@@ -3,8 +3,9 @@ import torch.nn as nn
 from torch.nn import init
 import functools
 from torch.optim import lr_scheduler
-
-
+import random
+from models.Addmodules.ACMix import ACmix
+from models.Addmodules.MSDA import MultiDilatelocalAttention
 ###############################################################################
 # Helper Functions
 ###############################################################################
@@ -152,7 +153,7 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
     elif netG == 'resnet_6blocks':
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6)
     elif netG == 'unet_128':
-        net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+        net = UnetGenerator(input_nc, output_nc, 5, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'unet_256':
         net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'SE_ResNet_blocks':
@@ -228,6 +229,9 @@ class GANLoss(nn.Module):
         LSGAN needs no sigmoid. vanilla GANs will handle it with BCEWithLogitsLoss.
         """
         super(GANLoss, self).__init__()
+        #修改标签平滑
+        target_real_label = random.randint(8, 11) * 0.1
+        target_fake_label = random.randint(0, 3) * 0.1
         self.register_buffer('real_label', torch.tensor(target_real_label))
         self.register_buffer('fake_label', torch.tensor(target_fake_label))
         self.gan_mode = gan_mode
@@ -578,7 +582,85 @@ class UnetGenerator(nn.Module):
     def forward(self, input):
         """Standard forward"""
         return self.model(input)
+    '''
+        加的下采样CBAM模块
+    '''
 
+
+class ChannelAttentionModule(nn.Module):
+    def __init__(self, channel, ratio=16):
+        super(ChannelAttentionModule, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+
+        self.shared_MLP = nn.Sequential(
+            nn.Conv2d(channel, channel // ratio, 1, bias=False),
+            nn.ReLU(),
+            nn.Conv2d(channel // ratio, channel, 1, bias=False)
+        )
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avgout = self.shared_MLP(self.avg_pool(x))
+        maxout = self.shared_MLP(self.max_pool(x))
+        return self.sigmoid(avgout + maxout)
+
+
+class SpatialAttentionModule(nn.Module):
+    def __init__(self):
+        super(SpatialAttentionModule, self).__init__()
+        self.conv2d = nn.Conv2d(in_channels=2, out_channels=1, kernel_size=7, stride=1, padding=3)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avgout = torch.mean(x, dim=1, keepdim=True)
+        maxout, _ = torch.max(x, dim=1, keepdim=True)
+        out = torch.cat([avgout, maxout], dim=1)
+        out = self.sigmoid(self.conv2d(out))
+        return out
+
+
+class CBAM(nn.Module):
+    def __init__(self, channel):
+        super(CBAM, self).__init__()
+        self.channel_attention = ChannelAttentionModule(channel)
+        self.spatial_attention = SpatialAttentionModule()
+
+    def forward(self, x):
+        out = self.channel_attention(x) * x
+        out = self.spatial_attention(out) * out
+        return out
+
+class downSamplingConnectionBlock(nn.Module):
+    def __init__(self, down_model,inner_nc):
+        super(downSamplingConnectionBlock, self).__init__()
+        self.attention = CBAM(inner_nc)
+        self.down_model = down_model
+    def forward(self, x):
+        x1 = self.down_model(x)
+        x1 = self.attention(x1) + x1
+        return x1
+
+class MultiDilationNet(nn.Module):
+    def __init__(self, inner_nc, outer_nc,use_bias=False):
+        super(MultiDilationNet, self).__init__()
+        sub_inner_nc = inner_nc // 4
+        sub_outer_nc = outer_nc // 4
+        self.sub1 = nn.Conv2d(inner_nc, sub_outer_nc, kernel_size=1, stride=1, padding=0, dilation=1,bias=use_bias)
+        self.sub2 = nn.Conv2d(inner_nc, sub_outer_nc, kernel_size=3, stride=1, padding=2, dilation=2,bias=use_bias)
+        self.sub3 = nn.Conv2d(inner_nc, sub_outer_nc, kernel_size=3, stride=1, padding=4, dilation=4,bias=use_bias)
+        self.sub4 = nn.Conv2d(inner_nc, sub_outer_nc, kernel_size=3, stride=1, padding=8, dilation=8,bias=use_bias)
+        self.cbam = CBAM(sub_outer_nc)
+        self.conv1x1 = nn.Conv2d(inner_nc, outer_nc,1,bias=use_bias)
+        self.batch_norm = nn.BatchNorm2d(inner_nc)
+        self.relu = nn.ReLU(inplace=True)
+    def forward(self, x):
+        sub_cbam1 = self.cbam(self.sub1(x))
+        sub_cbam2 = self.cbam(self.sub2(x))
+        sub_cbam3 = self.cbam(self.sub3(x))
+        sub_cbam4 = self.cbam(self.sub4(x))
+        x = torch.cat([sub_cbam1, sub_cbam2, sub_cbam3, sub_cbam4],1)
+        return x + self.relu(self.batch_norm(self.conv1x1(x)))
 
 class UnetSkipConnectionBlock(nn.Module):
     """Defines the Unet submodule with skip connection.
@@ -602,6 +684,7 @@ class UnetSkipConnectionBlock(nn.Module):
         """
         super(UnetSkipConnectionBlock, self).__init__()
         self.outermost = outermost
+        self.innermost = innermost
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
@@ -610,15 +693,17 @@ class UnetSkipConnectionBlock(nn.Module):
             input_nc = outer_nc
         downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4,
                              stride=2, padding=1, bias=use_bias)
+        acmix = ACmix(inner_nc, inner_nc)
         downrelu = nn.LeakyReLU(0.2, True)
         downnorm = norm_layer(inner_nc)
         uprelu = nn.ReLU(True)
         upnorm = norm_layer(outer_nc)
-
         if outermost:
             upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc,
                                         kernel_size=4, stride=2,
                                         padding=1)
+
+
             down = [downconv]
             up = [uprelu, upconv, nn.Tanh()]
             model = down + [submodule] + up
@@ -626,14 +711,16 @@ class UnetSkipConnectionBlock(nn.Module):
             upconv = nn.ConvTranspose2d(inner_nc, outer_nc,
                                         kernel_size=4, stride=2,
                                         padding=1, bias=use_bias)
+            # multidilation = MultiDilationNet(inner_nc, inner_nc, use_bias)
+            multinet = MultiDilatelocalAttention(inner_nc)
             down = [downrelu, downconv]
             up = [uprelu, upconv, upnorm]
-            model = down + up
+            model = down + [multinet] + up
         else:
             upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc,
                                         kernel_size=4, stride=2,
                                         padding=1, bias=use_bias)
-            down = [downrelu, downconv, downnorm]
+            down = [downrelu, downconv,acmix, downnorm]
             up = [uprelu, upconv, upnorm]
 
             if use_dropout:
@@ -728,3 +815,19 @@ class PixelDiscriminator(nn.Module):
     def forward(self, input):
         """Standard forward."""
         return self.net(input)
+
+
+if __name__ == '__main__':
+    x = torch.randn(1, 3, 640, 640)
+    net = UnetGenerator(3, 3, 7, 64, norm_layer=nn.BatchNorm2d, use_dropout=False)
+    output = net(x)
+    # print(output.shape)
+
+    print(net)
+
+
+
+
+    # d_net = NLayerDiscriminator(3, 64, 3, norm_layer=nn.BatchNorm2d)
+    # output = d_net(x)
+    # print(output.shape)

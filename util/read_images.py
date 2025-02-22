@@ -6,6 +6,7 @@ import torch.nn.functional as F
 
 def prewitt_operator(image):
     # Define Prewitt kernels
+    '''
     kernel_x = torch.tensor([[[[1, 0, -1],
                                [1, 0, -1],
                                [1, 0, -1]],
@@ -31,6 +32,33 @@ def prewitt_operator(image):
         [[1, 1, 1],
          [0, 0, 0],
          [-1, -1, -1]]
+    ]], dtype=torch.float32, device='cuda')
+    '''
+    kernel_x = torch.tensor([[[[.1, 0, -.1],
+                               [.1, 0, -.1],
+                               [.1, 0, -.1]],
+
+                              [[.1, 0, -.1],
+                               [.1, 0, -.1],
+                               [.1, 0, -.1]],
+
+                              [[.1, 0, -.1],
+                               [.1, 0, -.1],
+                               [.1, 0, -.1]]
+                              ]], dtype=torch.float32, device='cuda')
+
+    kernel_y = torch.tensor([[
+        [[.1, .1, .1],
+         [0, 0, 0],
+         [-.1, -.1, -.1]],
+
+        [[.1, .1, .1],
+         [0, 0, 0],
+         [-.1, -.1, -.1]],
+
+        [[.1, .1, .1],
+         [0, 0, 0],
+         [-.1, -.1, -.1]]
     ]], dtype=torch.float32, device='cuda')
 
     # Set requires_grad to False to avoid gradients
@@ -66,7 +94,7 @@ def solve(image,line):
 
 
 def shot_new(image, x1, x2, y1, y2):
-    crop = image[:, int(y1):int(y2), int(x1):int(x2)]
+    crop = image[:,:, int(y1):int(y2), int(x1):int(x2)]
     return crop
 
 def prewitt(paths, images):

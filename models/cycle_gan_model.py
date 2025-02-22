@@ -6,6 +6,8 @@ from . import networks
 from util.read_images import *
 import matplotlib.pyplot as plt
 
+import torchvision.transforms as transforms
+
 class CycleGANModel(BaseModel):
     """
     This class implements the CycleGAN model, for learning image-to-image translation without paired data.
@@ -17,6 +19,7 @@ class CycleGANModel(BaseModel):
 
     CycleGAN paper: https://arxiv.org/pdf/1703.10593.pdf
     """
+
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
         """Add new dataset-specific options, and rewrite default values for existing options.
@@ -41,7 +44,8 @@ class CycleGANModel(BaseModel):
         if is_train:
             parser.add_argument('--lambda_A', type=float, default=10.0, help='weight for cycle loss (A -> B -> A)')
             parser.add_argument('--lambda_B', type=float, default=10.0, help='weight for cycle loss (B -> A -> B)')
-            parser.add_argument('--lambda_identity', type=float, default=0.5, help='use identity mapping. Setting lambda_identity other than 0 has an effect of scaling the weight of the identity mapping loss. For example, if the weight of the identity loss should be 10 times smaller than the weight of the reconstruction loss, please set lambda_identity = 0.1')
+            parser.add_argument('--lambda_identity', type=float, default=0.5,
+                                help='use identity mapping. Setting lambda_identity other than 0 has an effect of scaling the weight of the identity mapping loss. For example, if the weight of the identity loss should be 10 times smaller than the weight of the reconstruction loss, please set lambda_identity = 0.1')
 
         return parser
 
@@ -84,18 +88,20 @@ class CycleGANModel(BaseModel):
 
         if self.isTrain:
             if opt.lambda_identity > 0.0:  # only works when input and output images have the same number of channels
-                assert(opt.input_nc == opt.output_nc)
+                assert (opt.input_nc == opt.output_nc)
             self.fake_A_pool = ImagePool(opt.pool_size)  # create image buffer to store previously generated images
             self.fake_B_pool = ImagePool(opt.pool_size)  # create image buffer to store previously generated images
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
-            #改进
+            # 改进
             self.edgeIdt = torch.nn.MSELoss()
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
-            self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
-            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
+            self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()),
+                                                lr=opt.lr, betas=(opt.beta1, 0.999))
+            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()),
+                                                lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
 
@@ -112,15 +118,13 @@ class CycleGANModel(BaseModel):
         self.real_B = input['B' if AtoB else 'A'].to(self.device)
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
 
-
-
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         self.fake_B = self.netG_A(self.real_A)  # G_A(A)
 
-        self.rec_A = self.netG_B(self.fake_B)   # G_B(G_A(A))
+        self.rec_A = self.netG_B(self.fake_B)  # G_B(G_A(A))
         self.fake_A = self.netG_B(self.real_B)  # G_B(B)
-        self.rec_B = self.netG_A(self.fake_A)   # G_A(G_B(B))
+        self.rec_B = self.netG_A(self.fake_A)  # G_A(G_B(B))
 
     def backward_D_basic(self, netD, real, fake):
         """Calculate GAN loss for the discriminator
@@ -133,6 +137,22 @@ class CycleGANModel(BaseModel):
         Return the discriminator loss.
         We also call loss_D.backward() to calculate the gradients.
         """
+        #改进
+        transform_resize  = transforms.Resize((real.shape[2] // 2, real.shape[3] // 2))
+
+        real_1div2 = transform_resize(real)
+        fake_1div2  = transform_resize(fake.detach())
+
+
+        pred_real_1div2 = netD(real_1div2)
+        loss_D_real_1div2 = self.criterionGAN(pred_real_1div2, True)
+
+        pred_fake_1div2 = netD(fake_1div2)
+        loss_D_fake_1div2 = self.criterionGAN(pred_fake_1div2, False)
+
+        loss_D_1div2 = (loss_D_real_1div2 + loss_D_fake_1div2) * 0.5
+
+
         # Real
         pred_real = netD(real)
         loss_D_real = self.criterionGAN(pred_real, True)
@@ -141,6 +161,10 @@ class CycleGANModel(BaseModel):
         loss_D_fake = self.criterionGAN(pred_fake, False)
         # Combined loss and calculate gradients
         loss_D = (loss_D_real + loss_D_fake) * 0.5
+
+        #改进
+        loss_D = (loss_D + loss_D_1div2) * 0.5
+
         loss_D.backward()
         return loss_D
 
@@ -181,45 +205,23 @@ class CycleGANModel(BaseModel):
         # combined loss and calculate gradients
         self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
         # 改进
-        for i, path in enumerate(self.image_paths):
-            directory, file_name = os.path.split(path)
-            base, _ = os.path.splitext(file_name)
-            new_dictionary = '/home/ycren/python/EVUP_part/trainAdir'
-            new_file_path = os.path.join(new_dictionary, base + '.txt')
-            # print("对应的label文件是:", new_file_path)
-            with open(new_file_path, 'r') as f:
-                lines = f.readlines()
-            # print('长度是:',len(lines))
-            for line in lines:
-                cut_image_label = solve(self.real_A[i], line)
-                cut_image_fake = solve(self.fake_B[i],line)
-                label_edge = prewitt_operator(cut_image_label)
-                fake_edge = prewitt_operator(cut_image_fake)
-                self.loss_G += (1 / len(lines)) * self.criterionCycle(label_edge, fake_edge) * lambda_A
-        # import cv2
-        # import numpy as np
-        # image_np = input['A'][0].permute(1, 2, 0).cpu().detach().numpy()
-        # image_np1 = cut_image_fake.permute(1, 2, 0).cpu().detach().numpy()
-        # image_np = (image_np * 255).astype(np.uint8)
-        # image_np1 = (image_np1 * 255).astype(np.uint8)
-        #
-        # cv2.imwrite('output_image123456.png', cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR))
-        # cv2.imwrite('cut_image_fake'+line+'.png', image_np1)
-
+        label_edge = prewitt_operator(self.real_A)
+        fake_edge = prewitt_operator(self.fake_B)
+        self.loss_G += self.criterionCycle(label_edge, fake_edge) * lambda_idt*lambda_A
         self.loss_G.backward()
 
     def optimize_parameters(self):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
         # forward
-        self.forward()      # compute fake images and reconstruction images.
+        self.forward()  # compute fake images and reconstruction images.
         # G_A and G_B
         self.set_requires_grad([self.netD_A, self.netD_B], False)  # Ds require no gradients when optimizing Gs
         self.optimizer_G.zero_grad()  # set G_A and G_B's gradients to zero
-        self.backward_G()             # calculate gradients for G_A and G_B
-        self.optimizer_G.step()       # update G_A and G_B's weights
+        self.backward_G()  # calculate gradients for G_A and G_B
+        self.optimizer_G.step()  # update G_A and G_B's weights
         # D_A and D_B
         self.set_requires_grad([self.netD_A, self.netD_B], True)
-        self.optimizer_D.zero_grad()   # set D_A and D_B's gradients to zero
-        self.backward_D_A()      # calculate gradients for D_A
-        self.backward_D_B()      # calculate graidents for D_B
+        self.optimizer_D.zero_grad()  # set D_A and D_B's gradients to zero
+        self.backward_D_A()  # calculate gradients for D_A
+        self.backward_D_B()  # calculate graidents for D_B
         self.optimizer_D.step()  # update D_A and D_B's weights

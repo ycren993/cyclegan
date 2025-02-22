@@ -7,12 +7,12 @@ def np_list_int(tb):
     tb_2 = tb.tolist()  # 将np转换为列表
     return tb_2
 # 读取图像
-image_path = '/home/ycren/python/URPC2020/train/images/000002_jpg.rf.47290e6d60585b7cf5b0762d6c22f10b.jpg'  # 图像路径
+image_path = '/home/ycren/python/EVUP_part/testA/005244_jpg.rf.61ac949e7ebf7ec03ec7b67de10d362d.jpg'  # 图像路径
 image = cv2.imread(image_path)
 height, width, _ = image.shape
 
 # 读取YOLO格式的标注文件
-annotation_path = '/home/ycren/python/EVUP_part/trainAdir/000002_jpg.rf.47290e6d60585b7cf5b0762d6c22f10b.txt'  # yolo标注txt文件路径
+annotation_path = '/home/ycren/python/EVUP_part/testA/005244_jpg.rf.61ac949e7ebf7ec03ec7b67de10d362d.txt'  # yolo标注txt文件路径
 with open(annotation_path, 'r') as file:
     lines = file.readlines()
 def solve():
@@ -61,6 +61,9 @@ if __name__ == '__main__':
     # for num, val in enumerate(files):
     #     shot_new(img_path="H1/" + val, left_up=left_up_1, left_down=left_down_1, right_up=right_up_1, i=num)
     solve()
-    # x = torch.randn(1, 3, 224, 224)
+
     
+    # x = torch.randn(1, 3, 224, 224)
+
+    # print(x[1])
 

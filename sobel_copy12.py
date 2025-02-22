@@ -7,31 +7,31 @@ from PIL import Image
 
 def prewitt_operator(image):
     # Define Prewitt kernels
-    kernel_x = torch.tensor([[[[1, 0, -1],
-                              [1, 0, -1],
-                              [1, 0, -1]],
+    kernel_x = torch.tensor([[[[.1, 0, -.1],
+                              [.1, 0, -.1],
+                              [.1, 0, -.1]],
 
-                             [[1, 0, -1],
-                              [1, 0, -1],
-                              [1, 0, -1]],
+                             [[.1, 0, -.1],
+                              [.1, 0, -.1],
+                              [.1, 0, -.1]],
 
-                             [[1, 0, -1],
-                              [1, 0, -1],
-                              [1, 0, -1]]
+                              [[.1, 0, -.1],
+                               [.1, 0, -.1],
+                               [.1, 0, -.1]]
                              ]], dtype=torch.float32)
 
     kernel_y = torch.tensor([[
-        [[1, 1, 1],
+        [[.1, .1, .1],
          [0, 0, 0],
-         [-1, -1, -1]],
+         [-.1, -.1, -.1]],
 
-        [[1, 1, 1],
+        [[.1, .1, .1],
          [0, 0, 0],
-         [-1, -1, -1]],
+         [-.1, -.1, -.1]],
 
-        [[1, 1, 1],
+        [[.1, .1, .1],
          [0, 0, 0],
-         [-1, -1, -1]]
+         [-.1, -.1, -.1]]
     ]], dtype=torch.float32)
 
     # Set requires_grad to False to avoid gradients
@@ -48,7 +48,7 @@ def prewitt_operator(image):
 
 
 # Load an image
-image_path = '/home/ycren/python/testpic/Snipaste_2024-12-29_17-41-06.png'  # Replace with your image path
+image_path = '/home/ycren/python/EVUP_part/trainA/000024_jpg.rf.e52327a1dc100484f24750d8c11bcb80.jpg'  # Replace with your image path
 image = Image.open(image_path).convert('RGB')
 
 # Transform the image to tensor and normalize

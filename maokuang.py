@@ -2,12 +2,12 @@ import cv2
 import matplotlib.pyplot as plt
 
 # 读取图像
-image_path = '/home/ycren/python/URPC2020/train/images/000001_jpg.rf.266fc523aedf194c237e888b4245636a.jpg'  # 图像路径
+image_path = '/home/ycren/python/EVUP_part/testA/005244_jpg.rf.61ac949e7ebf7ec03ec7b67de10d362d.jpg'  # 图像路径
 image = cv2.imread(image_path)
 height, width, _ = image.shape
 
 # 读取YOLO格式的标注文件
-annotation_path = '/home/ycren/python/URPC2020/train/labels/000001_jpg.rf.266fc523aedf194c237e888b4245636a.txt'  # yolo标注txt文件路径
+annotation_path = '/home/ycren/python/URPC2020/train/labels/005244_jpg.rf.61ac949e7ebf7ec03ec7b67de10d362d.txt'  # yolo标注txt文件路径
 with open(annotation_path, 'r') as file:
     lines = file.readlines()
 
