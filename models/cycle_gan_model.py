@@ -120,11 +120,11 @@ class CycleGANModel(BaseModel):
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
-        self.fake_B = self.netG_A(self.real_A)  # G_A(A)
+        self.fake_B,self.fake_B_1 = self.netG_A(self.real_A)  # G_A(A)
 
-        self.rec_A = self.netG_B(self.fake_B)  # G_B(G_A(A))
-        self.fake_A = self.netG_B(self.real_B)  # G_B(B)
-        self.rec_B = self.netG_A(self.fake_A)  # G_A(G_B(B))
+        self.rec_A,_ = self.netG_B(self.fake_B)  # G_B(G_A(A))
+        self.fake_A,self.fake_A_1 = self.netG_B(self.real_B)  # G_B(B)
+        self.rec_B,_ = self.netG_A(self.fake_A)  # G_A(G_B(B))
 
     def backward_D_basic(self, netD, real, fake):
         """Calculate GAN loss for the discriminator
@@ -186,10 +186,10 @@ class CycleGANModel(BaseModel):
         # Identity loss
         if lambda_idt > 0:
             # G_A should be identity if real_B is fed: ||G_A(B) - B||
-            self.idt_A = self.netG_A(self.real_B)
+            self.idt_A,_ = self.netG_A(self.real_B)
             self.loss_idt_A = self.criterionIdt(self.idt_A, self.real_B) * lambda_B * lambda_idt
             # G_B should be identity if real_A is fed: ||G_B(A) - A||
-            self.idt_B = self.netG_B(self.real_A)
+            self.idt_B,_ = self.netG_B(self.real_A)
             self.loss_idt_B = self.criterionIdt(self.idt_B, self.real_A) * lambda_A * lambda_idt
         else:
             self.loss_idt_A = 0
@@ -198,16 +198,24 @@ class CycleGANModel(BaseModel):
         self.loss_G_A = self.criterionGAN(self.netD_A(self.fake_B), True)
         # GAN loss D_B(G_B(B))
         self.loss_G_B = self.criterionGAN(self.netD_B(self.fake_A), True)
+        #新增1/2图
+        self.loss_G_A_1 = self.criterionGAN(self.netD_A(self.fake_A_1), True)
+        self.loss_G_B_1 = self.criterionGAN(self.netD_B(self.fake_B_1),True)
+
         # Forward cycle loss || G_B(G_A(A)) - A||
         self.loss_cycle_A = self.criterionCycle(self.rec_A, self.real_A) * lambda_A
         # Backward cycle loss || G_A(G_B(B)) - B||
         self.loss_cycle_B = self.criterionCycle(self.rec_B, self.real_B) * lambda_B
         # combined loss and calculate gradients
-        self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
+        self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B \
+                      + self.loss_idt_A + self.loss_idt_B + self.loss_G_A_1 + self.loss_G_B_1
         # 改进
-        label_edge = prewitt_operator(self.real_A)
-        fake_edge = prewitt_operator(self.fake_B)
-        self.loss_G += self.criterionCycle(label_edge, fake_edge) * lambda_idt*lambda_A
+        # label_edge_A = prewitt_operator(self.real_A)
+        # fake_edge_A = prewitt_operator(self.fake_B)
+        #
+        # label_edge_B = prewitt_operator(self.real_B)
+        # fake_edge_B = prewitt_operator(self.fake_A)
+        # self.loss_G += self.criterionCycle(label_edge_A, fake_edge_A) * lambda_idt*lambda_A + self.criterionCycle(label_edge_B, fake_edge_B) * lambda_idt*lambda_B
         self.loss_G.backward()
 
     def optimize_parameters(self):

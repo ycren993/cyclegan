@@ -64,7 +64,7 @@ def getUCIQE(img):
 import os
 def read_files(folder_path):
     # Specify the path to the folder
-    extra_path = '/home/ycren/python/pytorch-CycleGAN-and-pix2pix/results/resnet_9blocks_cyclegan/test_latest/images'
+    # extra_path = '/home/ycren/python/pytorch-CycleGAN-and-pix2pix/results/resnet_9blocks_cyclegan/test_latest/images'
     # Check if the folder exists
     if os.path.exists(folder_path) and os.path.isdir(folder_path):
         # Loop through all files in the folder
@@ -72,38 +72,41 @@ def read_files(folder_path):
         sum = 0
         j = 0
         for filename in os.listdir(folder_path):
-            sum = sum + 1
+            sum = sum + 2
             # Check if it is a file
             if os.path.isfile(os.path.join(folder_path, filename)):
                 # Split the filename and remove the extension
                 name, _ = os.path.splitext(filename)
-                # print('concat: ',name.split('_')[-2] +'_'+name.split('_')[-1], 'name: ', name)
-                # print(name)
-                concat_name = name.split('_')[-2] +'_'+name.split('_')[-1]
-                if concat_name == 'real_A':
+
+                concat_name = name.split('_')[-1]
+                if concat_name == 'real':
                     print('------------------------------------')
                     print('txt路径: ', os.path.join(folder_path, name+'.txt'))
-                    real_A_path = os.path.join(folder_path, filename)
-                    print('real_A路径: ', real_A_path,'UCIQE: ', getUCIQE(real_A_path))
+                    # real_A_path = os.path.join(folder_path, filename)
+                    # print('real_A路径: ', real_A_path,'UCIQE: ', getUCIQE(real_A_path))
                     # if os.path.exists(real_A_path):
                     #     print('real_A路径合法')
-                    extra_real = os.path.join(extra_path, filename)
-                    extra_fake = os.path.join(extra_path, filename.replace('real_A', 'fake_B'))
-                    fake_B_path = os.path.join(folder_path, filename.replace('real_A', 'fake_B'))
-                    uciqe_null = getUCIQE(extra_fake)
-                    uciqe_suanzi = getUCIQE(fake_B_path)
-                    print('fake_B路径: ', fake_B_path,'UCIQE: ', uciqe_suanzi)
-                    print('extra_B路径: ', extra_fake,'UCIQE: ', uciqe_null)
+                    extra_real = os.path.join(folder_path, filename)
+                    extra_fake = os.path.join(folder_path, filename.replace('real', 'fake'))
+                    uciqe_null = getUCIQE(extra_real)
+                    uciqe_suanzi = getUCIQE(extra_fake)
+                    print('fake_B路径: ', extra_fake,'UCIQE: ', uciqe_suanzi)
+                    print('extra_B路径: ', extra_real,'UCIQE: ', uciqe_null)
                     # print('ssim_算子: ', calculate_ssim(real_A_path, fake_B_path))
 
-                    ssim_suanzi = calculate_ssim(real_A_path, fake_B_path)
-                    ssim_null =calculate_ssim(extra_real,extra_fake)
-                    print('ssim_算子: ', ssim_suanzi)
-                    print('ssim_null: ',ssim_null)
-                    if ssim_null <= ssim_suanzi:
-                        i = i+1
-                    if uciqe_null <= uciqe_suanzi:
-                        j = j +1
+                    # ssim_suanzi = calculate_ssim(real_A_path, fake_B_path)
+                    # ssim_null =calculate_ssim(extra_real,extra_fake)
+                    # print('ssim_算子: ', ssim_suanzi)
+                    # print('ssim_null: ',ssim_null)
+                    # if ssim_null <= ssim_suanzi:
+                    #     i = i+1
+                    # if uciqe_null <= uciqe_suanzi:
+                    #     j = j +1
+
+                    if uciqe_null > uciqe_suanzi:
+                        i = i + 1
+                    else:
+                        j = j+1
                     # if os.path.exists(fake_B_path):
                     #     print('fake_B路径合法')
         print('i = ',i, ', sum = ', sum)
@@ -115,4 +118,4 @@ def read_files(folder_path):
 if __name__ == '__main__':
     # img = cv2.imread(r'/home/ycren/python/pytorch-CycleGAN-and-pix2pix/results/test_debug_cut/test_latest/images/005220_jpg.rf.4af5a3ab3f432bb24d479f4669a7d2b4_real_A.png')
     # print(getUCIQE(r'/home/ycren/python/pytorch-CycleGAN-and-pix2pix/results/test_debug_idt/test_latest/images/005215_jpg.rf.98d25ad03e0302ae5afd1551d4888dd2_fake_B.png'))
-    read_files(r'/home/ycren/python/pytorch-CycleGAN-and-pix2pix/results/P_SE_ResNet_blocks/test_latest/images')
+    read_files(r'/home/ycren/shells/result_test_test/testparam/test_latest/images')
