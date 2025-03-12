@@ -66,7 +66,9 @@ def delete_jpg_files(folder_path):
 
 if __name__ == '__main__':
     # 使用示例
-    directory_path = '/home/ycren/python/URPC-Official-Enhanced/valid/images'  # 替换为你的文件夹路径
+    directory_path = '/home/ycren/shells/result_test_test/testparam/test_latest/images'  # 替换为你的文件夹路径
     clean_directory(directory_path)
     convert_png_to_jpg(directory_path)
     delete_jpg_files(directory_path)
+
+

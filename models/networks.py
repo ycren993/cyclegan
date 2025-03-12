@@ -4,10 +4,11 @@ from torch.nn import init
 import functools
 from torch.optim import lr_scheduler
 import random
+import torch.nn.functional as F
 from models.Addmodules.ACMix import ACmix
 from models.Addmodules.MSDA import MultiDilatelocalAttention
 import torchvision.transforms as transforms
-
+from torchsummary import summary
 ###############################################################################
 # Helper Functions
 ###############################################################################
@@ -810,7 +811,260 @@ class ExpandedUnetGenerator(nn.Module):
 
         return x10,self.out_2(x9)
 
+class ExpandedUnetGenerator1(nn.Module):
+    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False):
+        super(ExpandedUnetGenerator1, self).__init__()
 
+        # 从最内层开始构建
+        # 原始结构中各层的参数对应关系：
+        # Block1: inner_nc=512, outer_nc=256
+        # Block2: inner_nc=256, outer_nc=128
+        # Block3: inner_nc=128, outer_nc=64
+        # 最外层:  outer_nc=output_nc
+
+
+        # 最外层
+        self.outermost_down = nn.Sequential(
+            nn.Conv2d(input_nc, 64, kernel_size=4, stride=2, padding=1),
+        )
+        # 中间层3（对应原始结构中的ngf到ngf*2的块）
+        self.middle_block_down_3 = nn.Sequential(
+            nn.LeakyReLU(0.2, True),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1, bias=False),
+            norm_layer(128)
+
+        )
+        # 中间层2（对应原始结构中的ngf*2到ngf*4的块）
+        self.middle_block_down_2 = nn.Sequential(
+            nn.LeakyReLU(0.2, True),
+            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1, bias=False),
+            norm_layer(256)
+
+        )
+        # 中间层1（对应原始结构中的ngf*4到ngf*8的块）
+        self.middle_block_down_1 = nn.Sequential(
+            nn.LeakyReLU(0.2, True),
+            nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1, bias=False),
+            norm_layer(512)
+        )
+
+        # 定义最内层块
+        self.innermost_down = nn.Sequential(
+            nn.LeakyReLU(0.2, True),
+            nn.Conv2d(512, 512, kernel_size=4, stride=2, padding=1, bias=False),
+        )
+        self.innermost_up = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(512, 512, kernel_size=4, stride=2, padding=1, bias=False),
+            norm_layer(512)
+        )
+
+
+        self.middle_block_up_1 = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(1024 , 256, kernel_size=4, stride=2, padding=1, bias=False),  # 512*2=1024
+            norm_layer(256)
+        )
+        self.middle_block_up_2 = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(512, 128, kernel_size=4, stride=2, padding=1, bias=False),  # 256*2=512
+            norm_layer(128)
+        )
+        self.middle_block_up_3 = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(256, 64, kernel_size=4, stride=2, padding=1, bias=False),  # 128*2=256
+            norm_layer(64)
+        )
+
+        self.out_2 = nn.Sequential(
+            nn.ReLU(),
+            nn.Conv2d(64,output_nc, kernel_size=1, stride=1, padding=0),
+        )
+        self.outermost_up = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(128, output_nc, kernel_size=4, stride=2, padding=1),  # 64*2=128
+            nn.Tanh()
+        )
+        self.convtranspose_11 = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(512,512,kernel_size=4,stride=2,padding=1,bias=False)
+        )
+
+        self.convtranspose_12 = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(512,512,kernel_size=8,stride=4,padding=2,bias=False)
+        )
+
+        self.convtranspose_21 = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(256, 256, kernel_size=4, stride=2, padding=1, bias=False)
+        )
+
+        self.conv_31 = nn.Sequential(
+            nn.ReLU(),
+            nn.Conv2d(256, 256, kernel_size=4, stride=2, padding=1, bias=False)
+        )
+        self.conv3x3_1 = nn.Conv2d(512 + 512 + 256,512 + 512 + 256,3,1,1,bias=False)
+        self.conv1x1_1 = nn.Conv2d(512 + 512 + 256,512,1,1,0,bias=False)
+        self.conv3x3_2 = nn.Conv2d(256 + 512 + 512, 256 + 512 + 512,3,1,1,bias=False)
+        self.conv1x1_2 = nn.Conv2d(256 + 512 + 512,256,1,1,0,bias=False)
+
+        self.leaky = nn.LeakyReLU(0.2, True)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+        self.conv1 = nn.Conv2d(input_nc, 32, kernel_size=9, stride=1, padding=4, bias=False)
+        self.conv2 = nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv1x3 = nn.Conv2d(32, 3, kernel_size=1, stride=1, padding=0, bias=False)
+
+
+    def forward(self, x):
+
+        x1 = self.outermost_down(x)       #64 128 128
+
+        x2 = self.middle_block_down_3(x1) #128 64 64
+        x3 = self.middle_block_down_2(x2) #256 32 32
+        x4 = self.middle_block_down_1(x3) #512 16 16
+
+        x5 = self.innermost_down(x4)#512 8 8
+        x6 = self.innermost_up(x5)  #512 16 16
+
+        concat_1 = self.conv1x1_1(self.relu(self.conv3x3_1(torch.cat([x4,F.interpolate(x5,16,mode='bilinear'), F.interpolate(x3,(16,16),mode='bilinear')],1))))
+
+        x7 = self.middle_block_up_1(torch.cat([x6,concat_1],1))  #(512 + 512 + 512 + 256) * 16 * 16 -> 32 * 32
+
+        concat_2 = self.conv1x1_2(self.relu(self.conv3x3_2(torch.cat([x3,F.interpolate(x4,32,mode='bilinear'), F.interpolate(x5,32,mode='bilinear')], 1))))
+
+        x8 = self.middle_block_up_2(torch.cat([x7,concat_2], 1)) #(256 + 256 + 512 + 512) * 32 * 32 -> 64 * 64
+        x9 = self.middle_block_up_3(torch.cat([x8,x2],1)) #(128 + 128) 64 64 -> 128 128
+        x10 = self.outermost_up(torch.cat([x9,x1],1))
+
+        return x10,self.out_2(x9)
+
+class ExpandedUnetGenerator2(nn.Module):
+    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False):
+        super(ExpandedUnetGenerator2, self).__init__()
+
+        # 从最内层开始构建
+        # 原始结构中各层的参数对应关系：
+        # Block1: inner_nc=512, outer_nc=256
+        # Block2: inner_nc=256, outer_nc=128
+        # Block3: inner_nc=128, outer_nc=64
+        # 最外层:  outer_nc=output_nc
+
+
+        # 最外层
+        self.outermost_down = nn.Sequential(
+            nn.Conv2d(input_nc, 64, kernel_size=4, stride=2, padding=1),
+        )
+        # 中间层3（对应原始结构中的ngf到ngf*2的块）
+        self.middle_block_down_3 = nn.Sequential(
+            nn.LeakyReLU(0.2, True),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1, bias=False),
+            norm_layer(128)
+
+        )
+        # 中间层2（对应原始结构中的ngf*2到ngf*4的块）
+        self.middle_block_down_2 = nn.Sequential(
+            nn.LeakyReLU(0.2, True),
+            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1, bias=False),
+            norm_layer(256)
+
+        )
+        # 中间层1（对应原始结构中的ngf*4到ngf*8的块）
+        self.middle_block_down_1 = nn.Sequential(
+            nn.LeakyReLU(0.2, True),
+            nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1, bias=False),
+            norm_layer(512)
+        )
+
+        # 定义最内层块
+        self.innermost_down = nn.Sequential(
+            nn.LeakyReLU(0.2, True),
+            nn.Conv2d(512, 512, kernel_size=4, stride=2, padding=1, bias=False),
+        )
+        self.innermost_up = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(512, 512, kernel_size=4, stride=2, padding=1, bias=False),
+            norm_layer(512)
+        )
+
+
+        self.middle_block_up_1 = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(1024 , 256, kernel_size=4, stride=2, padding=1, bias=False),  # 512*2=1024
+            norm_layer(256)
+        )
+        self.middle_block_up_2 = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(512, 128, kernel_size=4, stride=2, padding=1, bias=False),  # 256*2=512
+            norm_layer(128)
+        )
+        self.middle_block_up_3 = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(256, 64, kernel_size=4, stride=2, padding=1, bias=False),  # 128*2=256
+            norm_layer(64)
+        )
+
+        self.out_2 = nn.Sequential(
+            nn.ReLU(),
+            nn.Conv2d(64,output_nc, kernel_size=1, stride=1, padding=0),
+        )
+        self.outermost_up = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(128, output_nc, kernel_size=4, stride=2, padding=1),  # 64*2=128
+            nn.Tanh()
+        )
+        self.convtranspose_11 = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(512,512,kernel_size=4,stride=2,padding=1,bias=False)
+        )
+
+        self.convtranspose_12 = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(512,512,kernel_size=8,stride=4,padding=2,bias=False)
+        )
+
+        self.convtranspose_21 = nn.Sequential(
+            nn.ReLU(),
+            nn.ConvTranspose2d(256, 256, kernel_size=4, stride=2, padding=1, bias=False)
+        )
+
+        self.conv_31 = nn.Sequential(
+            nn.ReLU(),
+            nn.Conv2d(256, 256, kernel_size=4, stride=2, padding=1, bias=False)
+        )
+        self.conv3x3_1 = nn.Conv2d(512 + 512 + 256,512 + 512 + 256,3,1,1,bias=False)
+        self.conv1x1_1 = nn.Conv2d(512 + 512 + 256,512,1,1,0,bias=False)
+        self.conv3x3_2 = nn.Conv2d(256 + 512 + 512, 256 + 512 + 512,3,1,1,bias=False)
+        self.conv1x1_2 = nn.Conv2d(256 + 512 + 512,256,1,1,0,bias=False)
+
+        self.leaky = nn.LeakyReLU(0.2, True)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+        self.conv1 = nn.Conv2d(input_nc, 32, kernel_size=9, stride=1, padding=4, bias=False)
+        self.conv2 = nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv1x3 = nn.Conv2d(32, 3, kernel_size=1, stride=1, padding=0, bias=False)
+
+
+    def forward(self, x):
+
+        x1 = self.outermost_down(x)       #64 128 128
+
+        x2 = self.middle_block_down_3(x1) #128 64 64
+        x3 = self.middle_block_down_2(x2) #256 32 32
+        x4 = self.middle_block_down_1(x3) #512 16 16
+
+        x5 = self.innermost_down(x4)#512 8 8
+        x6 = self.innermost_up(x5)  #512 16 16
+
+
+        x7 = self.middle_block_up_1(torch.cat([x6,x4],1))  #(512 + 512 + 512 + 256) * 16 * 16 -> 32 * 32
+
+        x8 = self.middle_block_up_2(torch.cat([x7,x3], 1)) #(256 + 256 + 512 + 512) * 32 * 32 -> 64 * 64
+        x9 = self.middle_block_up_3(torch.cat([x8,x2],1)) #(128 + 128) 64 64 -> 128 128
+        x10 = self.outermost_up(torch.cat([x9,x1],1))
+
+        return x10,self.out_2(x9)
 class UnetSkipConnectionBlock(nn.Module):
     """Defines the Unet submodule with skip connection.
         X -------------------identity----------------------
@@ -977,10 +1231,10 @@ if __name__ == '__main__':
     # print('output = ', output.shape)
     # print((output_light * output).shape)
     # net = Unet64Generator(3, 3, 7, 64, norm_layer=nn.BatchNorm2d, use_dropout=False)
-    net = ExpandedUnetGenerator(3, 3, 7, 64, norm_layer=nn.BatchNorm2d, use_dropout=False)
-    output1, output2 = net(x)
-    print(output1.shape, output2.shape)
-
+    net = ExpandedUnetGenerator1(3, 3, 5, 64, norm_layer=nn.BatchNorm2d, use_dropout=False)
+    # output1, output2 = net(x)
+    # print(output1.shape, output2.shape)
+    print(summary(net.cuda(), input_size=(3, 256, 256)))
 
 
 
